@@ -2,6 +2,7 @@ package svc
 
 import (
 	"context"
+	"sync"
 
 	"go.uber.org/multierr"
 )
@@ -63,39 +64,30 @@ func Stop(ctx context.Context, svcs ...Service) error {
 
 // Wait waits on multiple services
 func Wait(ctx context.Context, svcs ...Service) error {
-	errs := make([]chan error, len(svcs))
+	var (
+		wg    sync.WaitGroup
+		l     sync.Mutex
+		first bool
+		err   error
+	)
 
-	for i, svc := range svcs {
-		errs[i] = make(chan error)
-		ch := errs[i]
+	for _, svc := range svcs {
+		wg.Add(1)
 		go func(svc Service) {
-			ch <- svc.Wait(ctx)
+			defer wg.Done()
+			serr := svc.Wait(ctx)
+			l.Lock()
+			if serr != nil {
+				err = multierr.Append(err, serr)
+			}
+			if !first {
+				go Stop(ctx, svcs...)
+			}
+			first = true
+			l.Unlock()
 		}(svc)
 	}
 
-	var (
-		first  = true
-		retErr error
-		j      = 0
-	)
-
-	for {
-		for _, ch := range errs {
-			select {
-			case err := <-ch:
-				if first {
-					go Stop(ctx, svcs...)
-				}
-
-				first = false
-				retErr = multierr.Append(retErr, err)
-
-				j++
-				if j == len(svcs)-1 {
-					return retErr
-				}
-			default:
-			}
-		}
-	}
+	wg.Wait()
+	return err
 }
