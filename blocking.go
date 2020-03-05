@@ -8,7 +8,7 @@ import (
 // WrapBlocking transforms a blocking start func (like http.ListenAndServe)
 // and returns a Service
 func WrapBlocking(start LifecycleFn, stop LifecycleFn) Service {
-	b := &blocking{start: start, stop: stop, ch: make(chan op)}
+	b := &base{start: start, startBlocking: true, stop: stop, ch: make(chan op)}
 	go b.init()
 
 	return b
@@ -21,15 +21,16 @@ type op struct {
 	fn  func(string)
 }
 
-type blocking struct {
-	start LifecycleFn
-	stop  LifecycleFn
-	mu    sync.Mutex
-	ch    chan op
-	state int
+type base struct {
+	start         LifecycleFn
+	stop          LifecycleFn
+	startBlocking bool
+	mu            sync.Mutex
+	ch            chan op
+	state         int
 }
 
-func (b *blocking) init() {
+func (b *base) init() {
 	var (
 		state    = StateEmpty
 		startCh  = make(chan error)
@@ -56,11 +57,16 @@ func (b *blocking) init() {
 				switch state {
 				case StateEmpty:
 					state = StateStarted
+					var err error
 					if b.start != nil {
-						go func(ctx context.Context) { startCh <- b.start(ctx) }(op.ctx)
+						if b.startBlocking {
+							go func(ctx context.Context) { startCh <- b.start(ctx) }(op.ctx)
+						} else {
+							err = b.start(op.ctx)
+						}
 					}
 
-					op.ret <- nil
+					op.ret <- err
 				case StateStarted:
 					op.ret <- nil
 				default:
@@ -95,25 +101,25 @@ func (b *blocking) init() {
 	}
 }
 
-func (b *blocking) Start(ctx context.Context) error {
+func (b *base) Start(ctx context.Context) error {
 	ch := make(chan error)
 	b.ch <- op{op: "start", ret: ch, ctx: ctx}
 	return <-ch
 }
 
-func (b *blocking) Stop(ctx context.Context) error {
+func (b *base) Stop(ctx context.Context) error {
 	ch := make(chan error)
 	b.ch <- op{op: "stop", ret: ch, ctx: ctx}
 	return <-ch
 }
 
-func (b *blocking) Wait(ctx context.Context) error {
+func (b *base) Wait(ctx context.Context) error {
 	ch := make(chan error)
 	b.ch <- op{op: "wait", ret: ch, ctx: ctx}
 	return <-ch
 }
 
-func (b *blocking) WithStatus(fn func(string)) {
+func (b *base) WithStatus(fn func(string)) {
 	ch := make(chan error)
 	b.ch <- op{op: "do", ret: ch, fn: fn, ctx: nil}
 	<-ch
