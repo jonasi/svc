@@ -77,6 +77,7 @@ func Wait(ctx context.Context, svcs ...Service) error {
 			defer wg.Done()
 			serr := svc.Wait(ctx)
 			l.Lock()
+			defer l.Unlock()
 			if serr != nil {
 				err = multierr.Append(err, serr)
 			}
@@ -84,7 +85,6 @@ func Wait(ctx context.Context, svcs ...Service) error {
 				go Stop(ctx, svcs...)
 			}
 			first = true
-			l.Unlock()
 		}(svc)
 	}
 

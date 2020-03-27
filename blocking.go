@@ -93,6 +93,13 @@ func (b *base) init() {
 				switch state {
 				case StateStarted:
 					tonotify = append(tonotify, op.ret)
+				case StateStopped:
+					err := startErr
+					if err == nil {
+						err = stopErr
+					}
+
+					op.ret <- err
 				default:
 					op.ret <- ErrWaitInvalid
 				}
