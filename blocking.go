@@ -32,11 +32,12 @@ type base struct {
 
 func (b *base) init() {
 	var (
-		state    = StateEmpty
-		startCh  = make(chan error)
-		startErr error
-		stopErr  error
-		tonotify = make([]chan error, 0)
+		state       = StateEmpty
+		startCh     = make(chan error)
+		startErr    error
+		startCancel func()
+		stopErr     error
+		tonotify    = make([]chan error, 0)
 	)
 
 	for {
@@ -57,12 +58,14 @@ func (b *base) init() {
 				switch state {
 				case StateEmpty:
 					state = StateStarted
+					var ctx context.Context
+					ctx, startCancel = context.WithCancel(op.ctx)
 					var err error
 					if b.start != nil {
 						if b.startBlocking {
-							go func(ctx context.Context) { startCh <- b.start(ctx) }(op.ctx)
+							go func(ctx context.Context) { startCh <- b.start(ctx) }(ctx)
 						} else {
-							err = b.start(op.ctx)
+							err = b.start(ctx)
 						}
 					}
 
@@ -79,6 +82,10 @@ func (b *base) init() {
 					if b.stop != nil {
 						stopErr = b.stop(op.ctx)
 					}
+					if startCancel != nil {
+						startCancel()
+					}
+
 					op.ret <- stopErr
 					for _, ch := range tonotify {
 						ch <- stopErr

@@ -35,3 +35,13 @@ type LifecycleFn func(context.Context) error
 func LifecycleFnNoCtx(fn func() error) LifecycleFn {
 	return func(context.Context) error { return fn() }
 }
+
+// StartAndWait is helper for the initialization Start & Wait
+// pattern
+func StartAndWait(ctx context.Context, svc Service) error {
+	if err := svc.Start(ctx); err != nil {
+		return err
+	}
+
+	return svc.Wait(ctx)
+}
